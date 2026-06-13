@@ -1,0 +1,280 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fuel Optimizer Dashboard</title>
+    
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    
+    <!-- CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        #map { height: 100vh; width: 100%; border-radius: 0; }
+        
+        .glass {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .custom-marker {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #22c55e;
+            border-radius: 50%;
+            border: 2px solid white;
+            color: white;
+            font-weight: bold;
+            box-shadow: 0 0 15px rgba(34, 197, 94, 0.5);
+        }
+
+        .fuel-marker { background: #f59e0b; box-shadow: 0 0 15px rgba(245, 158, 11, 0.5); }
+        .end-marker { background: #ef4444; box-shadow: 0 0 15px rgba(239, 68, 68, 0.5); }
+
+        /* Loader Animation */
+        .loader {
+            width: 48px; height: 48px;
+            border: 5px solid #FFF; border-bottom-color: #22c55e;
+            border-radius: 50%; display: inline-block;
+            box-sizing: border-box; animation: rotation 1s linear infinite;
+        }
+        @keyframes rotation { 
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); } 
+        }
+
+        /* Tooltip style */
+        .leaflet-popup-content-wrapper {
+            background: #1e293b !important;
+            color: white !important;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        .leaflet-popup-tip { background: #1e293b !important; }
+    </style>
+</head>
+<body class="overflow-hidden">
+
+    <!-- Sidebar controls -->
+    <div class="fixed top-6 left-6 z-[1000] w-96 flex flex-col gap-4 pointer-events-none">
+        
+        <!-- Input Card -->
+        <div class="glass p-6 rounded-2xl pointer-events-auto">
+            <h1 class="text-2xl font-bold mb-4 flex items-center gap-2">
+                <span class="text-green-500">⛽</span> Fuel Optimizer
+            </h1>
+            
+            <div class="flex flex-col gap-3">
+                <div class="relative">
+                    <label class="text-xs uppercase font-bold text-slate-400 mb-1 block">Start Location</label>
+                    <input id="start" type="text" placeholder="City, State" 
+                           class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all"
+                           value="">
+                </div>
+                <div class="relative">
+                    <label class="text-xs uppercase font-bold text-slate-400 mb-1 block">Destination</label>
+                    <input id="end" type="text" placeholder="City, State" 
+                           class="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 transition-all"
+                           value="">
+                </div>
+                
+                <button id="optimizeBtn" onclick="optimizeTrip()"
+                        class="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-lg mt-2 transition-all transform active:scale-95 flex justify-center items-center gap-2">
+                    Optimize Route
+                </button>
+            </div>
+        </div>
+
+        <!-- Result Card (Hidden initially) -->
+        <div id="resultCard" class="glass p-6 rounded-2xl pointer-events-auto hidden animate-in slide-in-from-left duration-500">
+            <h3 class="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Trip Summary</h3>
+            <div class="grid grid-cols-2 gap-4 mb-6 text-center">
+                <div class="bg-slate-900 rounded-xl p-3">
+                    <p class="text-xs text-slate-500 uppercase">Distance</p>
+                    <p id="totalDistance" class="text-xl font-bold">--</p>
+                </div>
+                <div class="bg-slate-900 rounded-xl p-3">
+                    <p class="text-xs text-slate-500 uppercase">Cost</p>
+                    <p id="totalCost" class="text-xl font-bold text-green-400">--</p>
+                </div>
+            </div>
+            
+            <h3 class="text-sm font-bold text-slate-400 uppercase tracking-widest mb-2">Fuel Stops</h3>
+            <div id="stopsList" class="flex flex-col gap-2 max-h-60 overflow-y-auto pr-2">
+                <!-- Stops updated via JS -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Loader Overlay -->
+    <div id="loader" class="fixed inset-0 z-[2000] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center hidden">
+        <div class="flex flex-col items-center gap-4">
+            <span class="loader"></span>
+            <p class="font-bold tracking-widest animate-pulse">PLANNING OPTIMAL ROUTE...</p>
+        </div>
+    </div>
+
+    <!-- Map Container -->
+    <div id="map"></div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let map;
+        let routeLayer;
+        let markers = [];
+
+        // Initialize Map
+        function initMap() {
+            map = L.map('map', { zoomControl: false }).setView([39.8283, -98.5795], 4);
+            L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+                attribution: '&copy; CartoDB'
+            }).addTo(map);
+            L.control.zoom({ position: 'bottomright' }).addTo(map);
+        }
+
+        initMap();
+
+        // Simple Polyline Decoder (Manual implementation)
+        function decodePolyline(encoded) {
+            let points = [];
+            let index = 0, len = encoded.length;
+            let lat = 0, lng = 0;
+
+            while (index < len) {
+                let b, shift = 0, result = 0;
+                do {
+                    b = encoded.charCodeAt(index++) - 63;
+                    result |= (b & 0x1f) << shift;
+                    shift += 5;
+                } while (b >= 0x20);
+                lat += ((result & 1) ? ~(result >> 1) : (result >> 1));
+
+                shift = 0; result = 0;
+                do {
+                    b = encoded.charCodeAt(index++) - 63;
+                    result |= (b & 0x1f) << shift;
+                    shift += 5;
+                } while (b >= 0x20);
+                lng += ((result & 1) ? ~(result >> 1) : (result >> 1));
+
+                points.push([lat / 1e5, lng / 1e5]);
+            }
+            return points;
+        }
+
+        async function optimizeTrip() {
+            const start = document.getElementById('start').value;
+            const end = document.getElementById('end').value;
+            const loader = document.getElementById('loader');
+            const resultCard = document.getElementById('resultCard');
+
+            if (!start || !end) return alert('Please enter both start and end');
+
+            loader.classList.remove('hidden');
+
+            try {
+                const response = await fetch('http://127.0.0.1:8000/api/optimize/', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ start, end })
+                });
+
+                if (!response.ok) throw new Error('Backend error');
+
+                const data = await response.json();
+                renderResult(data);
+                
+                resultCard.classList.remove('hidden');
+
+            } catch (err) {
+                console.error(err);
+                alert('Planning failed. Make sure Django is running at localhost:8000');
+            } finally {
+                loader.classList.add('hidden');
+            }
+        }
+
+        function renderResult(data) {
+            // Clear previous layers
+            if (routeLayer) map.removeLayer(routeLayer);
+            markers.forEach(m => map.removeLayer(m));
+            markers = [];
+
+            // 1. Draw Polyline
+            const coords = decodePolyline(data.route.polyline);
+            routeLayer = L.polyline(coords, {
+                color: '#22c55e',
+                weight: 5,
+                opacity: 0.6,
+                lineJoin: 'round'
+            }).addTo(map);
+
+            // 2. Add Start/End Markers
+            const startMarker = createCustomMarker(coords[0], 'START', 'green-marker').addTo(map);
+            const endMarker = createCustomMarker(coords[coords.length - 1], 'END', 'end-marker').addTo(map);
+            markers.push(startMarker, endMarker);
+
+            // 3. Add Fuel Stops
+            data.fuel_stops.forEach((stop, index) => {
+                const marker = createCustomMarker(
+                    [stop.latitude, stop.longitude], 
+                    (index + 1).toString(), 
+                    'fuel-marker'
+                ).addTo(map);
+
+                marker.bindPopup(`
+                    <div class="p-1">
+                        <div class="font-bold text-green-400">${stop.name}</div>
+                        <div class="text-xs text-slate-300">${stop.city}</div>
+                        <div class="mt-2 pt-2 border-t border-slate-700 flex justify-between gap-4">
+                            <span>Fuel: <b>${stop.gallons} gal</b></span>
+                            <span>Cost: <b>$${stop.cost}</b></span>
+                        </div>
+                    </div>
+                `);
+
+                markers.push(marker);
+            });
+
+            // 4. Update Summary
+            document.getElementById('totalDistance').innerText = data.route.distance + ' mi';
+            document.getElementById('totalCost').innerText = '$' + data.total_cost;
+
+            const list = document.getElementById('stopsList');
+            list.innerHTML = data.fuel_stops.map(s => `
+                <div class="bg-slate-800/50 p-3 rounded-lg border border-slate-700">
+                    <div class="flex justify-between items-start">
+                        <span class="font-bold text-sm text-green-400">${s.name}</span>
+                        <span class="text-xs bg-green-500/10 text-green-500 px-2 py-0.5 rounded">$${s.price}/gal</span>
+                    </div>
+                    <div class="text-[10px] text-slate-400 mt-1 uppercase">${s.city}</div>
+                    <div class="text-xs text-slate-300 mt-2 flex justify-between">
+                        <span>Fueling</span>
+                        <span class="font-bold text-slate-100">${s.gallons} gal</span>
+                    </div>
+                </div>
+            `).join('');
+
+            // Fit map to route
+            map.fitBounds(routeLayer.getBounds(), { padding: [100, 100] });
+        }
+
+        function createCustomMarker(latlng, label, cssClass) {
+            const icon = L.divIcon({
+                className: `custom-marker ${cssClass}`,
+                html: `<div class="text-[8px]">${label}</div>`,
+                iconSize: [24, 24]
+            });
+            return L.marker(latlng, { icon });
+        }
+    </script>
+</body>
+</html>
