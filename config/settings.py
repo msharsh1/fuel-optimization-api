@@ -11,18 +11,24 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import os
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# --- Simple .env loader (since python-dotenv is not installed) ---
+ENV_PATH = BASE_DIR / ".env"
+if ENV_PATH.exists():
+    with ENV_PATH.open() as f:
+        for line in f:
+            if line.strip() and not line.startswith("#"):
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
+
 SECRET_KEY = 'django-insecure-4(o@0h4@4k&)-4re)cs9b7@3s#@v=@vzhnkkism8j0(di+m(nk'
 
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
 ALLOWED_HOSTS = []
@@ -39,10 +45,12 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     
     'rest_framework',
+    'corsheaders',
     'core',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -118,3 +126,31 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# --- Fuel optimization / ORS ---
+ORS_API_KEY = os.environ.get("ORS_API_KEY", "")
+ORS_REQUEST_TIMEOUT = int(os.environ.get("ORS_REQUEST_TIMEOUT", "10"))
+# Retries are within the single allowed ORS call window
+ORS_MAX_RETRIES = int(os.environ.get("ORS_MAX_RETRIES", "1"))
+# STRICT: ORS Directions API is called EXACTLY ONCE per request
+ORS_MAX_CALLS_PER_REQUEST = 1
+ROUTE_CACHE_TTL = int(os.environ.get("ROUTE_CACHE_TTL", str(60 * 60 * 24)))
+
+VEHICLE_MAX_RANGE_MILES = float(os.environ.get("VEHICLE_MAX_RANGE_MILES", "500"))
+VEHICLE_MPG = float(os.environ.get("VEHICLE_MPG", "10"))
+
+# Maximum perpendicular distance (miles) a station may sit off the route polyline
+MAX_OFF_ROUTE_MILES = float(os.environ.get("MAX_OFF_ROUTE_MILES", "15"))
+
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "fuel-route-cache",
+    }
+}
+
+DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+# --- CORS ---
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
