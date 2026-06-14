@@ -5,8 +5,10 @@ from __future__ import annotations
 import json
 import logging
 
+from django.core.cache import cache
 from django.http import JsonResponse
 from django.shortcuts import render
+from django.utils.text import slugify
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
@@ -75,8 +77,15 @@ class OptimizeRouteView(View):
                 status=400,
             )
 
+        cache_key = f"route_{slugify(start)}_{slugify(end)}"
+        cached_result = cache.get(cache_key)
+        if cached_result:
+            logger.info("Serving cached result for %s", cache_key)
+            return JsonResponse(cached_result, status=200)
+
         try:
             result = TripService().plan_trip_as_dict(start, end)
+            cache.set(cache_key, result, timeout=86400)  # Cache for 24 hours
             return JsonResponse(result, status=200)
 
         except ValueError as exc:
