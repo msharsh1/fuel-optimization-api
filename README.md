@@ -1,6 +1,6 @@
-# Hybrid Fuel Optimization System
+# Fuel Cost Optimization System
 
-A high-performance, route-aware fuel optimization system that minimizes fuel cost for long-haul trips using a **single external API call** and intelligent local computation.
+A high-performance, route-aware fuel cost optimization system that minimizes fuel cost for long-haul trips using a **single external API call** and intelligent local computation.
 
 ---
 
