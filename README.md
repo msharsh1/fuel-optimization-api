@@ -1,6 +1,7 @@
 # Fuel Cost Optimization System
 
 A high-performance, route-aware fuel cost optimization system that minimizes fuel cost for long-haul trips using a **single external API call** and intelligent local computation.
+(Loom Demonstration video is added to the repository)
 
 ---
 
